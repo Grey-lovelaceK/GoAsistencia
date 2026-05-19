@@ -49,3 +49,17 @@ export interface UpdateSiteResponse {
   id: string;
   updated: boolean;
 }
+
+export interface CreateShiftRequest {
+  name: string;
+  start: string;
+  end: string;
+  breakMinutes: number;
+}
+
+export interface UpdateShiftRequest {
+  name?: string;
+  start?: string;
+  end?: string;
+  breakMinutes?: number;
+}

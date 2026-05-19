@@ -3,7 +3,10 @@ import type {
   AuthResponse,
   SiteListResponse,
   Site,
+  Shift,
   UpdateSiteRequest,
+  CreateShiftRequest,
+  UpdateShiftRequest,
   PunchListResponse,
   PresignedUrlResponse,
   PunchRequest,
@@ -89,6 +92,48 @@ export async function updateSite(id: string, data: UpdateSiteRequest): Promise<S
   });
   if (!found) throw new Error("NOT_FOUND");
   return found;
+}
+
+export async function createShift(siteId: string, data: CreateShiftRequest): Promise<Shift> {
+  await delay(300);
+  const shift: Shift = { id: `shift_${Date.now()}`, ...data };
+  sites = sites.map((s) => {
+    if (s.id !== siteId) return s;
+    return { ...s, shifts: [...(s.shifts ?? []), shift] };
+  });
+  return shift;
+}
+
+export async function updateShift(siteId: string, shiftId: string, data: UpdateShiftRequest): Promise<Shift> {
+  await delay(200);
+  let found: Shift | undefined;
+  sites = sites.map((s) => {
+    if (s.id !== siteId) return s;
+    const shifts = (s.shifts ?? []).map((t): Shift => {
+      if (t.id !== shiftId) return t;
+      const u: Shift = {
+        ...t,
+        ...(data.name         !== undefined ? { name:         data.name         } : {}),
+        ...(data.start        !== undefined ? { start:        data.start        } : {}),
+        ...(data.end          !== undefined ? { end:          data.end          } : {}),
+        ...(data.breakMinutes !== undefined ? { breakMinutes: data.breakMinutes } : {}),
+      };
+      found = u;
+      return u;
+    });
+    return { ...s, shifts };
+  });
+  if (!found) throw new Error("NOT_FOUND");
+  return found;
+}
+
+export async function deleteShift(siteId: string, shiftId: string): Promise<{ id: string; deleted: boolean }> {
+  await delay(200);
+  sites = sites.map((s) => {
+    if (s.id !== siteId) return s;
+    return { ...s, shifts: (s.shifts ?? []).filter((t) => t.id !== shiftId) };
+  });
+  return { id: shiftId, deleted: true };
 }
 
 // ─── Punches ─────────────────────────────────────────────────────────────────
