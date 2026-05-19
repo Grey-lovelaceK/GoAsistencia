@@ -21,6 +21,7 @@ interface Props {
   punchStep: string | null;
   error: string | null;
   geo: { isWithin: boolean; distanceMeters: number };
+  radiusMeters?: number;
   shift: { start: string; end: string; breakMinutes: number } | null;
   onPunch: (t: PunchType) => void;
 }
@@ -44,7 +45,7 @@ const STEP_ICONS = [
 ];
 
 export default function PunchCard({
-  next, lastPunch, canPunch, loading, punchStep, error, geo, shift, onPunch,
+  next, lastPunch, canPunch, loading, punchStep, error, geo, radiusMeters, shift, onPunch,
 }: Props) {
   const meta = PUNCH_META[next];
 
@@ -96,7 +97,7 @@ export default function PunchCard({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                 d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
             </svg>
-            <span>Estás a {geo.distanceMeters}m — radio máximo 500m</span>
+            <span>Estás a {geo.distanceMeters}m — radio máximo {radiusMeters ?? 500}m</span>
           </div>
         )}
 

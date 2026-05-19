@@ -276,6 +276,7 @@ export default function PunchPage() {
                 punchStep={punchStep}
                 error={error}
                 geo={geoResult}
+                radiusMeters={site?.radiusMeters}
                 shift={shift}
                 onPunch={handlePunch}
               />
