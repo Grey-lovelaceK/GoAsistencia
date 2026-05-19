@@ -8,6 +8,8 @@ export interface Shift {
 
 export interface Site {
   id: string;
+  empresaId: string;
+  empresaName: string;
   name: string;
   address: string;
   lat: number;
@@ -22,10 +24,25 @@ export interface SiteListResponse {
   sites: Site[];
 }
 
+export interface CreateSiteRequest {
+  empresaId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+  timezone?: string;
+}
+
 export interface UpdateSiteRequest {
+  empresaId?: string;
+  name?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
   radiusMeters?: number;
+  timezone?: string;
   active?: boolean;
-  shifts?: Shift[];
 }
 
 export interface UpdateSiteResponse {

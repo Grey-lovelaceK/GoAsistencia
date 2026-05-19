@@ -4,6 +4,7 @@ import { Errors } from "../../utils/errors";
 interface DbSite {
   id: string;
   empresa_id: string;
+  empresa_nombre: string;
   nombre: string;
   direccion: string;
   lat: number;
@@ -33,10 +34,10 @@ export interface UpdateSiteData {
 }
 
 function mapSite(row: DbSite) {
-  // pg returns NUMERIC/DECIMAL columns as strings — coerce explicitly
   return {
     id: row.id,
     empresaId: row.empresa_id,
+    empresaName: row.empresa_nombre ?? "",
     name: row.nombre,
     address: row.direccion ?? "",
     lat: parseFloat(String(row.lat)),
@@ -47,37 +48,53 @@ function mapSite(row: DbSite) {
   };
 }
 
-const COLS = `id, empresa_id, nombre, direccion, lat, lng, radio_metros, timezone, activo`;
-const SQL  = `SELECT ${COLS} FROM sitios`;
+const FULL_SELECT = `
+  SELECT s.id, s.empresa_id, COALESCE(e.nombre,'') AS empresa_nombre,
+         s.nombre, s.direccion, s.lat, s.lng, s.radio_metros, s.timezone, s.activo
+  FROM sitios s
+  JOIN empresas e ON e.id = s.empresa_id
+`;
 
-export async function getSites(empresaId: string) {
-  const rows = await query<DbSite>(`${SQL} WHERE empresa_id = $1 ORDER BY nombre`, [empresaId])
-    .catch((err: unknown) => dbError(err, "getSites"));
+export async function getSites(empresaId: string | null) {
+  const rows = empresaId
+    ? await query<DbSite>(`${FULL_SELECT} WHERE s.empresa_id = $1 ORDER BY s.nombre`, [empresaId])
+        .catch((err: unknown) => dbError(err, "getSites"))
+    : await query<DbSite>(`${FULL_SELECT} ORDER BY e.nombre, s.nombre`, [])
+        .catch((err: unknown) => dbError(err, "getSites"));
   return { sites: rows.map(mapSite) };
 }
 
 export async function getSite(id: string, empresaId: string) {
-  const row = await queryOne<DbSite>(`${SQL} WHERE id = $1 AND empresa_id = $2`, [id, empresaId])
-    .catch((err: unknown) => dbError(err, "getSite"));
+  const row = await queryOne<DbSite>(
+    `${FULL_SELECT} WHERE s.id = $1 AND s.empresa_id = $2`, [id, empresaId]
+  ).catch((err: unknown) => dbError(err, "getSite"));
+  if (!row) throw Errors.notFound("Sitio no encontrado");
+  return mapSite(row);
+}
+
+async function getSiteById(id: string): Promise<ReturnType<typeof mapSite>> {
+  const row = await queryOne<DbSite>(
+    `${FULL_SELECT} WHERE s.id = $1`, [id]
+  ).catch((err: unknown) => dbError(err, "getSiteById"));
   if (!row) throw Errors.notFound("Sitio no encontrado");
   return mapSite(row);
 }
 
 export async function createSite(empresaId: string, data: CreateSiteData) {
-  const row = await queryOne<DbSite>(
+  const inserted = await queryOne<{ id: string }>(
     `INSERT INTO sitios (empresa_id, nombre, direccion, lat, lng, radio_metros, timezone, activo)
      VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-     RETURNING ${COLS}`,
+     RETURNING id`,
     [empresaId, data.name, data.address, data.lat, data.lng, data.radiusMeters, data.timezone ?? "America/Santiago"]
   ).catch((err: unknown) => dbError(err, "createSite"));
-  if (!row) throw Errors.internal("No se pudo crear el sitio");
-  return mapSite(row);
+  if (!inserted) throw Errors.internal("No se pudo crear el sitio");
+  return getSiteById(inserted.id);
 }
 
-export async function updateSite(id: string, empresaId: string, data: UpdateSiteData) {
+export async function updateSite(id: string, empresaId: string | null, data: UpdateSiteData) {
   const fields: string[] = [];
-  const values: unknown[] = [id, empresaId];
-  let idx = 3;
+  const values: unknown[] = [];
+  let idx = 1;
 
   if (data.name         !== undefined) { fields.push(`nombre = $${idx++}`);       values.push(data.name);         }
   if (data.address      !== undefined) { fields.push(`direccion = $${idx++}`);    values.push(data.address);      }
@@ -89,11 +106,19 @@ export async function updateSite(id: string, empresaId: string, data: UpdateSite
 
   if (fields.length === 0) throw Errors.badRequest("Nada que actualizar");
 
-  const row = await queryOne<DbSite>(
-    `UPDATE sitios SET ${fields.join(", ")} WHERE id = $1 AND empresa_id = $2
-     RETURNING ${COLS}`,
+  const whereClause = empresaId
+    ? `id = $${idx++} AND empresa_id = $${idx++}`
+    : `id = $${idx++}`;
+  if (empresaId) {
+    values.push(id, empresaId);
+  } else {
+    values.push(id);
+  }
+
+  const updated = await queryOne<{ id: string }>(
+    `UPDATE sitios SET ${fields.join(", ")} WHERE ${whereClause} RETURNING id`,
     values
   ).catch((err: unknown) => dbError(err, "updateSite"));
-  if (!row) throw Errors.notFound("Sitio no encontrado");
-  return mapSite(row);
+  if (!updated) throw Errors.notFound("Sitio no encontrado");
+  return getSiteById(updated.id);
 }

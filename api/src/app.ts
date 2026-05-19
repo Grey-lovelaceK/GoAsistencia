@@ -14,6 +14,7 @@ import { punchesRoutes } from "./modules/punches/punches.routes";
 import { reportsRoutes } from "./modules/reports/reports.routes";
 // Fase 6B
 import { exceptionsRoutes } from "./modules/exceptions/exceptions.routes";
+import { empresasRoutes } from "./modules/empresas/empresas.routes";
 
 export async function buildApp() {
   const app = Fastify({
@@ -65,6 +66,7 @@ export async function buildApp() {
   await app.register(punchesRoutes,       V1);
   await app.register(reportsRoutes,       V1);
   await app.register(exceptionsRoutes,    V1);
+  await app.register(empresasRoutes,      V1);
 
   return app;
 }

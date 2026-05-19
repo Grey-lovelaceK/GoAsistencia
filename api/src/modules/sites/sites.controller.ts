@@ -3,14 +3,12 @@ import * as sitesService from "./sites.service";
 import type { CreateSiteData, UpdateSiteData } from "./sites.service";
 import { AppError, Errors } from "../../utils/errors";
 
-function resolveEmpresaId(request: FastifyRequest): string {
+function resolveEmpresaId(request: FastifyRequest): string | null {
   const payload = request.jwtPayload!;
   if (payload.isPlatformAdmin) {
     const qs   = request.query as Record<string, string>;
     const body = (request.body ?? {}) as Record<string, unknown>;
-    const id   = (body.empresaId as string | undefined) ?? qs.empresaId;
-    if (!id) throw Errors.forbidden("platform_admin requiere empresaId");
-    return id;
+    return (body.empresaId as string | undefined) ?? qs.empresaId ?? null;
   }
   if (!payload.empresaId) throw Errors.forbidden("Sin empresa asignada");
   return payload.empresaId;
@@ -31,6 +29,7 @@ export async function getOneHandler(request: FastifyRequest, reply: FastifyReply
   const { id } = request.params as { id: string };
   try {
     const empresaId = resolveEmpresaId(request);
+    if (!empresaId) throw Errors.badRequest("empresaId requerido para obtener sitio individual");
     const site = await sitesService.getSite(id, empresaId);
     return reply.send(site);
   } catch (err) {
@@ -41,7 +40,12 @@ export async function getOneHandler(request: FastifyRequest, reply: FastifyReply
 
 export async function createHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const empresaId = resolveEmpresaId(request);
+    let empresaId = resolveEmpresaId(request);
+    if (!empresaId) {
+      const body = request.body as Record<string, unknown>;
+      empresaId  = (body.empresaId as string | undefined) ?? null;
+    }
+    if (!empresaId) throw Errors.badRequest("empresaId es requerido");
     const body = request.body as Record<string, unknown>;
 
     const name    = typeof body.name    === "string" ? body.name.trim()    : "";
@@ -76,7 +80,12 @@ export async function createHandler(request: FastifyRequest, reply: FastifyReply
 export async function updateHandler(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as { id: string };
   try {
-    const empresaId = resolveEmpresaId(request);
+    let empresaId = resolveEmpresaId(request);
+    if (!empresaId) {
+      const body = request.body as Record<string, unknown>;
+      empresaId  = (body.empresaId as string | undefined) ?? null;
+    }
+    if (!empresaId) throw Errors.badRequest("empresaId es requerido");
     const body = request.body as Record<string, unknown>;
 
     const data: UpdateSiteData = {};

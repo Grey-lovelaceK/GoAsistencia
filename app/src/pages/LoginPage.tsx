@@ -12,7 +12,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      navigate(user.role === "admin" ? "/admin" : "/punch", { replace: true });
+      navigate(user.role === "admin" || user.isPlatformAdmin ? "/admin" : "/punch", { replace: true });
     }
   }, [isAuthenticated, user, navigate]);
 

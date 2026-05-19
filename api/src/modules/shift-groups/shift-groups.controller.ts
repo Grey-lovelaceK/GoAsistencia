@@ -4,6 +4,12 @@ import { AppError, Errors } from "../../utils/errors";
 
 function resolveEmpresaId(request: FastifyRequest): string {
   const payload = request.jwtPayload!;
+  if (payload.isPlatformAdmin) {
+    const qs = request.query as Record<string, string>;
+    const id = qs.empresaId;
+    if (!id) throw Errors.badRequest("empresaId requerido (query param)");
+    return id;
+  }
   if (!payload.empresaId) throw Errors.forbidden("Sin empresa asignada");
   return payload.empresaId;
 }

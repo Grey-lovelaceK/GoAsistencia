@@ -9,6 +9,6 @@ export function AuthGuard() {
 export function AdminGuard() {
   const { isAuthenticated, user } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user?.role !== "admin") return <Navigate to="/punch" replace />;
+  if (user?.role !== "admin" && !user?.isPlatformAdmin) return <Navigate to="/punch" replace />;
   return <Outlet />;
 }

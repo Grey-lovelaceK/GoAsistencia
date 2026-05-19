@@ -56,7 +56,7 @@ export default function DesktopLogin() {
         password,
       });
       authLogin(result.token, result.user);
-      navigate(result.user.role === "admin" ? "/admin" : "/punch", { replace: true });
+      navigate(result.user.role === "admin" || result.user.isPlatformAdmin ? "/admin" : "/punch", { replace: true });
     } catch (err) {
       setError(
         err instanceof ApiError && err.code === "INVALID_CREDENTIALS"

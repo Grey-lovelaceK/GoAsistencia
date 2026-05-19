@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { employeesService } from "@/services/employees.service";
 import { sitesService } from "@/services/sites.service";
+import { empresasService, type Empresa } from "@/services/empresas.service";
+import { shiftGroupsService, type GrupoTurno } from "@/services/shift-groups.service";
 import type { Employee, Site, EmployeeRole } from "@/types";
 import Card from "@/components/admin/Card";
 import Avatar from "@/components/admin/Avatar";
@@ -10,11 +13,16 @@ import PrimaryBtn from "@/components/admin/PrimaryBtn";
 type SubView = "list" | "form";
 
 interface EmpForm {
+  empresaId: string;
   name: string; rut: string; email: string; password: string;
   siteId: string; role: EmployeeRole; status: "activo" | "inactivo";
+  grupoTurnoId: string;
 }
 
-const EMPTY_FORM: EmpForm = { name: "", rut: "", email: "", password: "", siteId: "", role: "employee", status: "activo" };
+const EMPTY_FORM: EmpForm = {
+  empresaId: "", name: "", rut: "", email: "", password: "",
+  siteId: "", role: "employee", status: "activo", grupoTurnoId: "",
+};
 
 const ROLE_LABELS: Record<EmployeeRole, string> = {
   employee:   "Empleado",
@@ -23,9 +31,14 @@ const ROLE_LABELS: Record<EmployeeRole, string> = {
 };
 
 export default function EmpleadosView() {
+  const { user } = useAuth();
+  const isPlatformAdmin = user?.isPlatformAdmin === true;
+
   const [subView,    setSubView]    = useState<SubView>("list");
   const [employees,  setEmployees]  = useState<Employee[]>([]);
   const [sites,      setSites]      = useState<Site[]>([]);
+  const [empresas,   setEmpresas]   = useState<Empresa[]>([]);
+  const [grupos,     setGrupos]     = useState<GrupoTurno[]>([]);
   const [editing,    setEditing]    = useState<Employee | null>(null);
   const [form,       setForm]       = useState<EmpForm>(EMPTY_FORM);
   const [search,     setSearch]     = useState("");
@@ -37,46 +50,80 @@ export default function EmpleadosView() {
 
   const reload = () => {
     setLoading(true);
-    Promise.all([employeesService.getEmployees(), sitesService.getSites()])
-      .then(([emp, sit]) => { setEmployees(emp.employees); setSites(sit.sites); })
+    const reqs: Promise<unknown>[] = [
+      employeesService.getEmployees(),
+      sitesService.getSites(),
+    ];
+    if (isPlatformAdmin) reqs.push(empresasService.getEmpresas());
+
+    Promise.all(reqs)
+      .then(([emp, sit, ems]) => {
+        setEmployees((emp as { employees: Employee[] }).employees);
+        setSites((sit as { sites: Site[] }).sites);
+        if (ems) setEmpresas((ems as { empresas: Empresa[] }).empresas);
+      })
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { reload(); }, []);
 
+  // Load grupos when form empresa changes
+  useEffect(() => {
+    if (!form.empresaId) { setGrupos([]); return; }
+    shiftGroupsService.getShiftGroups(form.empresaId)
+      .then((r) => setGrupos(r.grupos))
+      .catch(() => setGrupos([]));
+  }, [form.empresaId]);
+
+  const filteredSites = useMemo(
+    () => form.empresaId ? sites.filter((s) => s.empresaId === form.empresaId) : sites,
+    [sites, form.empresaId]
+  );
+
   const filtered = useMemo(() => employees.filter((e) => {
-    const ms    = e.name.toLowerCase().includes(search.toLowerCase()) || e.rut.includes(search);
+    const ms    = e.name.toLowerCase().includes(search.toLowerCase()) || e.rut?.includes(search);
     const mSite = siteF   === "Todos" || e.siteName === siteF;
     const mSt   = statusF === "all"   || e.status === statusF;
     return ms && mSite && mSt;
   }), [employees, search, siteF, statusF]);
 
   const openCreate = () => {
+    const defaultEmpresa = isPlatformAdmin ? (empresas[0]?.id ?? "") : (user?.empresaId ?? "");
     setEditing(null);
-    setForm({ ...EMPTY_FORM, siteId: sites[0]?.id ?? "" });
+    setForm({ ...EMPTY_FORM, empresaId: defaultEmpresa, siteId: "" });
     setSubView("form");
   };
 
   const openEdit = (emp: Employee) => {
     setEditing(emp);
-    setForm({ name: emp.name, rut: emp.rut, email: emp.email, password: "", siteId: emp.siteId, role: emp.role, status: emp.status });
+    setForm({
+      empresaId: emp.empresaId ?? "",
+      name: emp.name, rut: emp.rut ?? "", email: emp.email, password: "",
+      siteId: emp.siteId ?? "", role: emp.role, status: emp.status,
+      grupoTurnoId: emp.grupoTurnoId ?? "",
+    });
     setSubView("form");
   };
 
   const saveForm = async () => {
-    if (!form.name || !form.rut || !form.email || !form.siteId) return;
+    if (!form.name || !form.rut || !form.email) return;
     setSaving(true);
     try {
       if (editing) {
         await employeesService.updateEmployee(editing.id, {
-          name: form.name, email: form.email, siteId: form.siteId,
+          name: form.name, email: form.email,
+          siteId: form.siteId || null,
           role: form.role, status: form.status,
+          grupoTurnoId: form.grupoTurnoId || null,
+          empresaId: isPlatformAdmin ? form.empresaId : undefined,
         });
       } else {
         if (!form.password) return;
         await employeesService.createEmployee({
           rut: form.rut, name: form.name, email: form.email,
           siteId: form.siteId, role: form.role, password: form.password,
+          grupoTurnoId: form.grupoTurnoId || null,
+          empresaId: isPlatformAdmin ? form.empresaId : undefined,
         });
       }
       reload();
@@ -88,12 +135,16 @@ export default function EmpleadosView() {
 
   const toggleStatus = async (emp: Employee) => {
     const newStatus = emp.status === "activo" ? "inactivo" : "activo";
-    await employeesService.updateEmployee(emp.id, { status: newStatus });
+    await employeesService.updateEmployee(emp.id, {
+      status: newStatus,
+      empresaId: isPlatformAdmin ? emp.empresaId : undefined,
+    });
     reload();
   };
 
-  const deleteEmp = async (id: string) => {
+  const deleteEmp = async (id: string, empEmpresaId: string) => {
     await employeesService.deleteEmployee(id);
+    void empEmpresaId;
     setDelConfirm(null);
     reload();
   };
@@ -121,6 +172,15 @@ export default function EmpleadosView() {
           <Card className="col-span-2 p-6 flex flex-col gap-5">
             <p className="text-sm font-semibold text-gray-900">Datos personales</p>
             <div className="grid grid-cols-2 gap-4">
+              {isPlatformAdmin && (
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Empresa</label>
+                  <select value={form.empresaId} onChange={(e) => setForm((f) => ({ ...f, empresaId: e.target.value, siteId: "", grupoTurnoId: "" }))} className={inputCls}>
+                    <option value="">— Selecciona empresa —</option>
+                    {empresas.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Nombre completo</label>
                 <input type="text" placeholder="Nombre Apellido" value={form.name}
@@ -147,11 +207,23 @@ export default function EmpleadosView() {
 
             <div className="pt-1" style={{ borderTop: "1px solid #f1f5f9" }}>
               <p className="text-sm font-semibold text-gray-900 mb-4">Asignación</p>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Sitio</label>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Sitio / Sucursal</label>
                   <select value={form.siteId} onChange={(e) => setForm((f) => ({ ...f, siteId: e.target.value }))} className={inputCls}>
-                    {sites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <option value="">— Sin sitio —</option>
+                    {filteredSites.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Grupo de turno</label>
+                  <select value={form.grupoTurnoId} onChange={(e) => setForm((f) => ({ ...f, grupoTurnoId: e.target.value }))} className={inputCls}>
+                    <option value="">— Sin turno —</option>
+                    {grupos.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.nombre}{g.turno ? ` (${g.turno.horaInicio}–${g.turno.horaFin})` : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -192,8 +264,16 @@ export default function EmpleadosView() {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Información</p>
                 <div className="flex flex-col gap-2 text-xs">
                   <div className="flex justify-between">
+                    <span className="text-gray-400">Empresa</span>
+                    <span className="font-medium text-gray-700">{editing!.empresaName}</span>
+                  </div>
+                  <div className="flex justify-between">
                     <span className="text-gray-400">Creado</span>
                     <span className="font-medium text-gray-700">{editing!.createdAt.slice(0, 10)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Turno actual</span>
+                    <span className="font-medium text-gray-700">{editing!.grupoTurnoNombre ?? "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Passkey</span>
@@ -204,19 +284,6 @@ export default function EmpleadosView() {
                 </div>
               </Card>
             )}
-            <Card className="p-5 flex flex-col gap-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Roles disponibles</p>
-              {[
-                { r: "Empleado",      desc: "Acceso solo a marcaje móvil"          },
-                { r: "Supervisor",    desc: "Marcaje móvil + vista de su equipo"   },
-                { r: "Administrador", desc: "Acceso completo al panel"             },
-              ].map(({ r, desc }) => (
-                <div key={r} className="flex flex-col gap-0.5">
-                  <span className="text-xs font-semibold text-gray-700">{r}</span>
-                  <span className="text-[10px] text-gray-400">{desc}</span>
-                </div>
-              ))}
-            </Card>
           </div>
         </div>
       </div>
@@ -272,14 +339,17 @@ export default function EmpleadosView() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: "linear-gradient(to right, #f8fafc, #eff6ff)" }}>
-                  {["Empleado","RUT","Sitio","Rol","Passkey","Estado","Acciones"].map((h) => (
+                  {[
+                    "Empleado", ...(isPlatformAdmin ? ["Empresa"] : []),
+                    "RUT","Sitio","Turno","Rol","Estado","Acciones"
+                  ].map((h) => (
                     <th key={h} className="text-left px-4 py-3.5 text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap text-gray-400">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400 text-sm">Sin resultados</td></tr>
+                  <tr><td colSpan={isPlatformAdmin ? 8 : 7} className="px-4 py-12 text-center text-gray-400 text-sm">Sin resultados</td></tr>
                 ) : filtered.map((emp) => (
                   <tr key={emp.id} className="hover:bg-blue-50/20 transition-colors">
                     <td className="px-4 py-3.5">
@@ -291,15 +361,14 @@ export default function EmpleadosView() {
                         </div>
                       </div>
                     </td>
+                    {isPlatformAdmin && (
+                      <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">{emp.empresaName}</td>
+                    )}
                     <td className="px-4 py-3.5 text-gray-400 text-xs whitespace-nowrap">{emp.rut}</td>
-                    <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">{emp.siteName}</td>
+                    <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">{emp.siteName ?? "—"}</td>
+                    <td className="px-4 py-3.5 text-gray-500 text-xs whitespace-nowrap">{emp.grupoTurnoNombre ?? "—"}</td>
                     <td className="px-4 py-3.5 text-xs whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: "rgba(41,137,216,0.08)", color: "#1e5799" }}>{ROLE_LABELS[emp.role] ?? emp.role}</span>
-                    </td>
-                    <td className="px-4 py-3.5 text-xs whitespace-nowrap">
-                      {emp.passkey
-                        ? <span className="flex items-center gap-1 text-emerald-600"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Registrada</span>
-                        : <span className="text-gray-300 text-[10px]">Sin passkey</span>}
                     </td>
                     <td className="px-4 py-3.5 whitespace-nowrap">
                       <span className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full w-fit ${emp.status === "activo" ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-400"}`}>
@@ -317,7 +386,7 @@ export default function EmpleadosView() {
                         <span className="text-gray-200">·</span>
                         {delConfirm === emp.id ? (
                           <span className="flex items-center gap-1">
-                            <button onClick={() => deleteEmp(emp.id)} className="text-xs font-semibold text-red-500 hover:text-red-700 transition-colors">Confirmar</button>
+                            <button onClick={() => deleteEmp(emp.id, emp.empresaId)} className="text-xs font-semibold text-red-500 hover:text-red-700 transition-colors">Confirmar</button>
                             <span className="text-gray-200">·</span>
                             <button onClick={() => setDelConfirm(null)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">No</button>
                           </span>

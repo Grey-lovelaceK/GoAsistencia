@@ -5,6 +5,7 @@ import { Errors } from "../../utils/errors";
 interface DbUsuario {
   id: string;
   empresa_id: string;
+  empresa_nombre: string;
   rut: string;
   nombre: string;
   email: string;
@@ -27,7 +28,7 @@ interface GrupoInfo {
 
 async function getActiveGrupoTurnos(
   userIds: string[],
-  empresaId: string
+  empresaId: string | null
 ): Promise<Map<string, GrupoInfo | null>> {
   const result = new Map<string, GrupoInfo | null>();
   if (userIds.length === 0) return result;
@@ -35,15 +36,18 @@ async function getActiveGrupoTurnos(
   const today = new Date().toISOString().split("T")[0];
 
   const ugts = await query<{ usuario_id: string; grupo_turno_id: string }>(
-    `SELECT usuario_id, grupo_turno_id, fecha_inicio
-     FROM usuarios_grupos_turno
-     WHERE usuario_id = ANY($1) AND empresa_id = $2
-       AND (fecha_fin IS NULL OR fecha_fin >= $3)
-     ORDER BY fecha_inicio DESC`,
-    [userIds, empresaId, today]
+    empresaId
+      ? `SELECT usuario_id, grupo_turno_id FROM usuarios_grupos_turno
+         WHERE usuario_id = ANY($1) AND empresa_id = $2
+           AND (fecha_fin IS NULL OR fecha_fin >= $3)
+         ORDER BY fecha_inicio DESC`
+      : `SELECT usuario_id, grupo_turno_id FROM usuarios_grupos_turno
+         WHERE usuario_id = ANY($1)
+           AND (fecha_fin IS NULL OR fecha_fin >= $2)
+         ORDER BY fecha_inicio DESC`,
+    empresaId ? [userIds, empresaId, today] : [userIds, today]
   ).catch((err: unknown) => dbError(err, "getActiveGrupoTurnos.ugts"));
 
-  // La más reciente por usuario (vienen DESC)
   const latestPerUser = new Map<string, string>();
   for (const ugt of ugts) {
     if (!latestPerUser.has(ugt.usuario_id)) {
@@ -58,8 +62,10 @@ async function getActiveGrupoTurnos(
   }
 
   const grupos = await query<GrupoInfo>(
-    `SELECT id, nombre, tipo FROM grupos_turno WHERE id = ANY($1) AND empresa_id = $2`,
-    [grupoIds, empresaId]
+    empresaId
+      ? `SELECT id, nombre, tipo FROM grupos_turno WHERE id = ANY($1) AND empresa_id = $2`
+      : `SELECT id, nombre, tipo FROM grupos_turno WHERE id = ANY($1)`,
+    empresaId ? [grupoIds, empresaId] : [grupoIds]
   ).catch((err: unknown) => dbError(err, "getActiveGrupoTurnos.grupos"));
 
   const grupoMap = new Map(grupos.map((g) => [g.id, g]));
@@ -80,6 +86,7 @@ function mapEmployee(
   return {
     id:               u.id,
     empresaId:        u.empresa_id,
+    empresaName:      u.empresa_nombre,
     rut:              u.rut,
     name:             u.nombre,
     email:            u.email,
@@ -100,38 +107,44 @@ function mapEmployee(
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 export async function getEmployees(params: {
-  empresaId: string;
+  empresaId: string | null;
   supervisorId?: string;
   includeInactive?: boolean;
 }) {
   const conditions: string[] = [];
   const vals: unknown[] = [];
 
-  conditions.push(`empresa_id = $${vals.push(params.empresaId)}`);
-  if (!params.includeInactive) conditions.push(`activo = true`);
-  if (params.supervisorId) conditions.push(`supervisor_id = $${vals.push(params.supervisorId)}`);
+  if (params.empresaId) {
+    conditions.push(`u.empresa_id = $${vals.push(params.empresaId)}`);
+  }
+  if (!params.includeInactive) conditions.push("u.activo = true");
+  if (params.supervisorId) conditions.push(`u.supervisor_id = $${vals.push(params.supervisorId)}`);
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const rows = await query<DbUsuario>(
-    `SELECT id, empresa_id, rut, nombre, email, role, sitio_id, supervisor_id,
-            passkey_registrado, activo, created_at, updated_at
-     FROM usuarios WHERE ${conditions.join(" AND ")} ORDER BY nombre`,
+    `SELECT u.id, u.empresa_id, e.nombre AS empresa_nombre,
+            u.rut, u.nombre, u.email, u.role, u.sitio_id, u.supervisor_id,
+            u.passkey_registrado, u.activo, u.created_at, u.updated_at
+     FROM usuarios u
+     JOIN empresas e ON e.id = u.empresa_id
+     ${where} ORDER BY u.nombre`,
     vals
   ).catch((err: unknown) => dbError(err, "getEmployees.usuarios"));
 
-  // Batch: nombres de sitios
   const siteIds = [...new Set(rows.filter((u) => u.sitio_id).map((u) => u.sitio_id as string))];
   const siteNameMap = new Map<string, string>();
   if (siteIds.length > 0) {
     const sitios = await query<{ id: string; nombre: string }>(
-      `SELECT id, nombre FROM sitios WHERE id = ANY($1) AND empresa_id = $2`,
-      [siteIds, params.empresaId]
+      params.empresaId
+        ? `SELECT id, nombre FROM sitios WHERE id = ANY($1) AND empresa_id = $2`
+        : `SELECT id, nombre FROM sitios WHERE id = ANY($1)`,
+      params.empresaId ? [siteIds, params.empresaId] : [siteIds]
     ).catch((err: unknown) => dbError(err, "getEmployees.sitios"));
     for (const s of sitios) siteNameMap.set(s.id, s.nombre);
   }
 
-  // Batch: grupos de turno activos
   const grupoMap = await getActiveGrupoTurnos(rows.map((u) => u.id), params.empresaId);
-
   const employees = rows.map((u) => mapEmployee(u, siteNameMap, grupoMap));
   return { employees, total: employees.length };
 }
@@ -162,14 +175,13 @@ export async function createEmployee(data: {
     `INSERT INTO usuarios
        (empresa_id, rut, nombre, email, password_hash, role, sitio_id, supervisor_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING id, empresa_id, rut, nombre, email, role, sitio_id, supervisor_id,
-               passkey_registrado, activo, created_at, updated_at`,
+     RETURNING id, empresa_id, '' AS empresa_nombre, rut, nombre, email, role,
+               sitio_id, supervisor_id, passkey_registrado, activo, created_at, updated_at`,
     [data.empresaId, data.rut, data.name, email, passwordHash, data.role, data.siteId ?? null, data.supervisorId ?? null]
   ).catch((err: unknown) => dbError(err, "createEmployee.insert"));
 
   const u = rows[0];
 
-  // Asignar grupo de turno si viene
   if (data.grupoTurnoId) {
     const today = new Date().toISOString().split("T")[0];
     await query(
@@ -180,10 +192,10 @@ export async function createEmployee(data: {
   }
 
   return {
-    id: u.id, empresaId: u.empresa_id, rut: u.rut, name: u.nombre, email: u.email,
-    role: u.role, siteId: u.sitio_id, siteName: null,
-    supervisorId: u.supervisor_id, status: u.activo ? "activo" : "inactivo",
-    passkey: u.passkey_registrado,
+    id: u.id, empresaId: u.empresa_id, empresaName: "", rut: u.rut,
+    name: u.nombre, email: u.email, role: u.role,
+    siteId: u.sitio_id, siteName: null, supervisorId: u.supervisor_id,
+    status: u.activo ? "activo" : "inactivo", passkey: u.passkey_registrado,
     grupoTurnoId: data.grupoTurnoId ?? null, grupoTurnoNombre: null, grupoTurnoTipo: null,
     createdAt: u.created_at, updatedAt: u.updated_at,
   };
@@ -191,7 +203,7 @@ export async function createEmployee(data: {
 
 export async function updateEmployee(
   id: string,
-  empresaId: string,
+  empresaId: string | null,
   data: {
     name?: string;
     email?: string;
@@ -203,12 +215,17 @@ export async function updateEmployee(
     grupoTurnoId?: string | null;
   }
 ) {
-  const found = await queryOne<{ id: string }>(
-    `SELECT id FROM usuarios WHERE id = $1 AND empresa_id = $2`,
-    [id, empresaId]
+  const whereClause = empresaId ? "id = $1 AND empresa_id = $2" : "id = $1";
+  const whereVals   = empresaId ? [id, empresaId] : [id];
+
+  const found = await queryOne<{ id: string; empresa_id: string }>(
+    `SELECT id, empresa_id FROM usuarios WHERE ${whereClause}`,
+    whereVals
   ).catch((err: unknown) => dbError(err, "updateEmployee.find"));
 
   if (!found) throw Errors.notFound("Empleado no encontrado");
+
+  const actualEmpresaId = found.empresa_id;
 
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -222,15 +239,13 @@ export async function updateEmployee(
   if (data.status !== undefined)       sets.push(`activo = $${vals.push(data.status === "activo")}`);
   sets.push("updated_at = now()");
 
-  const idIdx  = vals.push(id);
-  const eidIdx = vals.push(empresaId);
+  const idIdx = vals.push(id);
 
   await query(
-    `UPDATE usuarios SET ${sets.join(", ")} WHERE id = $${idIdx} AND empresa_id = $${eidIdx}`,
+    `UPDATE usuarios SET ${sets.join(", ")} WHERE id = $${idIdx}`,
     vals
   ).catch((err: unknown) => dbError(err, "updateEmployee.update"));
 
-  // Cambio de grupo de turno: cierra el actual y abre el nuevo
   if (data.grupoTurnoId !== undefined && data.grupoTurnoId !== null) {
     const today     = new Date().toISOString().split("T")[0];
     const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0];
@@ -238,30 +253,33 @@ export async function updateEmployee(
     await query(
       `UPDATE usuarios_grupos_turno SET fecha_fin = $1
        WHERE usuario_id = $2 AND empresa_id = $3 AND fecha_fin IS NULL`,
-      [yesterday, id, empresaId]
+      [yesterday, id, actualEmpresaId]
     ).catch((err: unknown) => dbError(err, "updateEmployee.close_grupo"));
 
     await query(
       `INSERT INTO usuarios_grupos_turno (usuario_id, empresa_id, grupo_turno_id, fecha_inicio)
        VALUES ($1, $2, $3, $4)`,
-      [id, empresaId, data.grupoTurnoId, today]
+      [id, actualEmpresaId, data.grupoTurnoId, today]
     ).catch((err: unknown) => dbError(err, "updateEmployee.new_grupo"));
   }
 
   return { id, updated: true };
 }
 
-export async function deleteEmployee(id: string, empresaId: string) {
+export async function deleteEmployee(id: string, empresaId: string | null) {
+  const whereClause = empresaId ? "id = $1 AND empresa_id = $2" : "id = $1";
+  const whereVals   = empresaId ? [id, empresaId] : [id];
+
   const found = await queryOne<{ id: string }>(
-    `SELECT id FROM usuarios WHERE id = $1 AND empresa_id = $2`,
-    [id, empresaId]
+    `SELECT id FROM usuarios WHERE ${whereClause}`,
+    whereVals
   ).catch((err: unknown) => dbError(err, "deleteEmployee.find"));
 
   if (!found) throw Errors.notFound("Empleado no encontrado");
 
   await query(
-    `UPDATE usuarios SET activo = false, updated_at = now() WHERE id = $1 AND empresa_id = $2`,
-    [id, empresaId]
+    `UPDATE usuarios SET activo = false, updated_at = now() WHERE id = $1`,
+    [id]
   ).catch((err: unknown) => dbError(err, "deleteEmployee.update"));
 
   return { id, status: "inactivo" };

@@ -37,7 +37,7 @@ export default function MobileLogin() {
       if (result.user.role === "employee" && result.user.passkey === false) {
         setPasskeyPending({ rut: normalizedId, password });
       } else {
-        navigate(result.user.role === "admin" ? "/admin" : "/punch", { replace: true });
+        navigate(result.user.role === "admin" || result.user.isPlatformAdmin ? "/admin" : "/punch", { replace: true });
       }
     } catch (err) {
       setError(

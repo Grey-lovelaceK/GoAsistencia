@@ -70,21 +70,20 @@ export async function getSite(siteId: string): Promise<Site> {
   return site;
 }
 
-export async function updateSite(
-  id: string,
-  data: UpdateSiteRequest,
-): Promise<{ id: string; updated: boolean }> {
+export async function updateSite(id: string, data: UpdateSiteRequest): Promise<Site> {
   await delay(200);
+  let updated = sites.find((s) => s.id === id);
   sites = sites.map((s) => {
     if (s.id !== id) return s;
-    return {
+    updated = {
       ...s,
       ...(data.active       !== undefined && { active:       data.active       }),
       ...(data.radiusMeters !== undefined && { radiusMeters: data.radiusMeters }),
-      ...(data.shifts       !== undefined && { shifts:       data.shifts       }),
     };
+    return updated;
   });
-  return { id, updated: true };
+  if (!updated) throw new Error("NOT_FOUND");
+  return updated;
 }
 
 // ─── Punches ─────────────────────────────────────────────────────────────────
@@ -122,7 +121,7 @@ export async function createPunch(data: PunchRequest): Promise<PunchResponse> {
 
 export async function getEmployees(): Promise<EmployeeListResponse> {
   await delay();
-  return { employees, nextCursor: null, total: employees.length };
+  return { employees, total: employees.length };
 }
 
 export async function createEmployee(data: CreateEmployeeRequest): Promise<Employee> {
@@ -130,15 +129,21 @@ export async function createEmployee(data: CreateEmployeeRequest): Promise<Emplo
   const site = MOCK_SITES.find((s) => s.id === data.siteId);
   const employee: Employee = {
     id: `usr_${Date.now()}`,
+    empresaId: data.empresaId ?? "emp_01",
+    empresaName: "GO Tecnología",
     rut: data.rut,
     name: data.name,
     email: data.email,
     role: data.role,
-    siteId: data.siteId,
-    siteName: site?.name ?? "",
+    siteId: data.siteId ?? null,
+    siteName: site?.name ?? null,
     status: "activo",
     passkey: false,
+    grupoTurnoId: data.grupoTurnoId ?? null,
+    grupoTurnoNombre: null,
+    grupoTurnoTipo: null,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   employees = [...employees, employee];
   return employee;

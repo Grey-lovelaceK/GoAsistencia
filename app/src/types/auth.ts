@@ -5,12 +5,14 @@ export interface LoginRequest {
 
 export interface AuthUser {
   id: string;
-  rut: string;
+  rut?: string;
   email: string;
   name: string;
-  role: "employee" | "supervisor" | "admin";
-  siteId: string;
+  role: "employee" | "supervisor" | "admin" | null;
+  empresaId?: string | null;
+  siteId?: string | null;
   passkey?: boolean;
+  isPlatformAdmin?: boolean;
 }
 
 export interface AuthResponse {

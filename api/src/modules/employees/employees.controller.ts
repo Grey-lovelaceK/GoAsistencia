@@ -12,6 +12,7 @@ const createSchema = z.object({
   siteId:       z.string().uuid().nullable().optional(),
   supervisorId: z.string().uuid().nullable().optional(),
   grupoTurnoId: z.string().uuid().nullable().optional(),
+  empresaId:    z.string().uuid().optional(),
 });
 
 const updateSchema = z.object({
@@ -23,16 +24,15 @@ const updateSchema = z.object({
   supervisorId: z.string().uuid().nullable().optional(),
   status:       z.enum(["activo", "inactivo"]).optional(),
   grupoTurnoId: z.string().uuid().nullable().optional(),
+  empresaId:    z.string().uuid().optional(),
 });
 
-function resolveEmpresaId(request: FastifyRequest): string {
+function resolveEmpresaId(request: FastifyRequest): string | null {
   const payload = request.jwtPayload!;
   if (payload.isPlatformAdmin) {
     const qs   = request.query as Record<string, string>;
     const body = (request.body ?? {}) as Record<string, unknown>;
-    const id   = (body.empresaId as string | undefined) ?? qs.empresaId;
-    if (!id) throw Errors.forbidden("platform_admin requiere empresaId");
-    return id;
+    return (body.empresaId as string | undefined) ?? qs.empresaId ?? null;
   }
   if (!payload.empresaId) throw Errors.forbidden("Sin empresa asignada");
   return payload.empresaId;
@@ -40,8 +40,8 @@ function resolveEmpresaId(request: FastifyRequest): string {
 
 export async function listHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
-    const empresaId = resolveEmpresaId(request);
-    const payload = request.jwtPayload!;
+    const empresaId  = resolveEmpresaId(request);
+    const payload    = request.jwtPayload!;
     const supervisorId = payload.role === "supervisor" ? payload.sub : undefined;
     const result = await employeesService.getEmployees({ empresaId, supervisorId });
     return reply.send(result);
@@ -57,8 +57,14 @@ export async function createHandler(request: FastifyRequest, reply: FastifyReply
     return reply.status(400).send({ error: "Datos inválidos", details: parsed.error.flatten() });
   }
   try {
-    const empresaId = resolveEmpresaId(request);
-    const employee = await employeesService.createEmployee({ empresaId, ...parsed.data });
+    const payload    = request.jwtPayload!;
+    let empresaId = resolveEmpresaId(request);
+    if (!empresaId && payload.isPlatformAdmin) {
+      empresaId = parsed.data.empresaId ?? null;
+    }
+    if (!empresaId) throw Errors.badRequest("empresaId es requerido");
+    const { empresaId: _ignored, ...rest } = parsed.data;
+    const employee = await employeesService.createEmployee({ empresaId, ...rest });
     return reply.status(201).send(employee);
   } catch (err) {
     if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
@@ -73,8 +79,13 @@ export async function updateHandler(request: FastifyRequest, reply: FastifyReply
     return reply.status(400).send({ error: "Datos inválidos", details: parsed.error.flatten() });
   }
   try {
-    const empresaId = resolveEmpresaId(request);
-    const result = await employeesService.updateEmployee(id, empresaId, parsed.data);
+    const payload    = request.jwtPayload!;
+    let empresaId = resolveEmpresaId(request);
+    if (!empresaId && payload.isPlatformAdmin) {
+      empresaId = parsed.data.empresaId ?? null;
+    }
+    const { empresaId: _ignored, ...rest } = parsed.data;
+    const result = await employeesService.updateEmployee(id, empresaId, rest);
     return reply.send(result);
   } catch (err) {
     if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
