@@ -42,6 +42,10 @@ export default function PunchPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const geo = useGeolocation();
+
+  useEffect(() => {
+    if (user?.isPlatformAdmin) navigate("/admin", { replace: true });
+  }, [user?.isPlatformAdmin, navigate]);
   const { canInstall, install } = usePWAInstall();
 
   const [tab,        setTab]        = useState<Tab>("asistencia");
@@ -104,6 +108,8 @@ export default function PunchPage() {
       }),
     [],
   );
+
+  if (user?.isPlatformAdmin) return null;
 
   const handleCameraCapture = (blob: Blob) => {
     setShowCamera(false);
