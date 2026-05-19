@@ -136,8 +136,7 @@ export async function createPunch(
     }
   }
 
-  // 5. Validar dispositivo autorizado
-  const isDev = process.env.NODE_ENV !== "production";
+  // 5. Validar dispositivo autorizado (TODO Fase 4: hacer obligatorio en producción)
   const device = await queryOne<{ id: string; tipo: string }>(
     `SELECT id, tipo FROM dispositivos_autorizados
      WHERE device_id = $1 AND empresa_id = $2 AND activo = true`,
@@ -145,8 +144,7 @@ export async function createPunch(
   ).catch((err: unknown) => dbError(err, "createPunch.device"));
 
   if (!device) {
-    if (!isDev) throw Errors.forbidden("Dispositivo no autorizado para esta empresa");
-    console.warn(`[DEV] Device '${data.deviceId}' no registrado — omitiendo validación en desarrollo`);
+    console.warn(`[Punch] Device '${data.deviceId}' no registrado — permitiendo sin validación de dispositivo`);
   }
 
   // 6. Validar canal permitido (solo si hay política estricta y dispositivo conocido)
