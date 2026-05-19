@@ -11,5 +11,7 @@ export function detectIdentifierType(value: string): IdentifierType {
 }
 
 export function normalizeIdentifier(value: string): string {
-  return value.replace(/\./g, "").trim();
+  const trimmed = value.trim();
+  if (EMAIL_RE.test(trimmed)) return trimmed.toLowerCase();
+  return trimmed.replace(/\./g, "");
 }
