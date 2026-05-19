@@ -11,11 +11,10 @@ const b64Encode = (b: ArrayBuffer): string =>
     .replace(/\//g, "_")
     .replace(/=/g, "");
 
-export async function stepUpBiometrics(rut: string): Promise<string> {
+export async function stepUpBiometrics(rut: string, hasPasskey = false): Promise<string> {
   const useMocks = import.meta.env.VITE_USE_MOCKS === "true";
 
-  // Skip real WebAuthn in mock mode or if device doesn't support it
-  if (useMocks || !window.PublicKeyCredential) {
+  if (useMocks || !window.PublicKeyCredential || !hasPasskey) {
     await new Promise<void>((r) => setTimeout(r, 500));
     return `mock_webauthn_${Date.now()}`;
   }

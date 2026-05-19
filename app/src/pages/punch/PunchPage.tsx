@@ -125,7 +125,7 @@ export default function PunchPage() {
     setLoading(true); setError(null); setPunchStep(null);
     try {
       setPunchStep("Verificando identidad (biometría)...");
-      const webAuthnToken = await stepUpBiometrics(user.rut ?? "");
+      const webAuthnToken = await stepUpBiometrics(user.rut ?? "", user.passkey === true);
 
       setPunchStep("Abriendo cámara...");
       const blob = await openCameraModal();
