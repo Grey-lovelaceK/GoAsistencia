@@ -72,18 +72,23 @@ export async function getSite(siteId: string): Promise<Site> {
 
 export async function updateSite(id: string, data: UpdateSiteRequest): Promise<Site> {
   await delay(200);
-  let updated = sites.find((s) => s.id === id);
+  let found: Site | undefined;
   sites = sites.map((s) => {
     if (s.id !== id) return s;
-    updated = {
+    const u: Site = {
       ...s,
-      ...(data.active       !== undefined && { active:       data.active       }),
-      ...(data.radiusMeters !== undefined && { radiusMeters: data.radiusMeters }),
+      ...(data.active       !== undefined ? { active:       data.active       } : {}),
+      ...(data.radiusMeters !== undefined ? { radiusMeters: data.radiusMeters } : {}),
+      ...(data.name         !== undefined ? { name:         data.name         } : {}),
+      ...(data.address      !== undefined ? { address:      data.address      } : {}),
+      ...(data.lat          !== undefined ? { lat:          data.lat          } : {}),
+      ...(data.lng          !== undefined ? { lng:          data.lng          } : {}),
     };
-    return updated;
+    found = u;
+    return u;
   });
-  if (!updated) throw new Error("NOT_FOUND");
-  return updated;
+  if (!found) throw new Error("NOT_FOUND");
+  return found;
 }
 
 // ─── Punches ─────────────────────────────────────────────────────────────────
@@ -154,15 +159,15 @@ export async function updateEmployee(
   data: UpdateEmployeeRequest,
 ): Promise<{ id: string; updated: boolean }> {
   await delay();
-  employees = employees.map((e) => {
+  employees = employees.map((e): Employee => {
     if (e.id !== id) return e;
     return {
       ...e,
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.email !== undefined && { email: data.email }),
-      ...(data.siteId !== undefined && { siteId: data.siteId }),
-      ...(data.role   !== undefined && { role:   data.role   }),
-      ...(data.status !== undefined && { status: data.status }),
+      ...(data.name   !== undefined ? { name:   data.name   } : {}),
+      ...(data.email  !== undefined ? { email:  data.email  } : {}),
+      ...(data.siteId !== undefined ? { siteId: data.siteId } : {}),
+      ...(data.role   !== undefined ? { role:   data.role   } : {}),
+      ...(data.status !== undefined ? { status: data.status } : {}),
     };
   });
   return { id, updated: true };
@@ -227,14 +232,14 @@ export async function updateException(
   data: UpdateExceptionRequest,
 ): Promise<{ id: string; updated: boolean }> {
   await delay();
-  exceptions = exceptions.map((e) => {
+  exceptions = exceptions.map((e): CalendarException => {
     if (e.id !== id) return e;
     return {
       ...e,
-      ...(data.title !== undefined && { title: data.title }),
-      ...(data.dateFrom !== undefined && { dateFrom: data.dateFrom }),
-      ...(data.dateTo !== undefined && { dateTo: data.dateTo }),
-      ...(data.description !== undefined && { description: data.description }),
+      ...(data.title       !== undefined ? { title:       data.title       } : {}),
+      ...(data.dateFrom    !== undefined ? { dateFrom:    data.dateFrom    } : {}),
+      ...(data.dateTo      !== undefined ? { dateTo:      data.dateTo      } : {}),
+      ...(data.description !== undefined ? { description: data.description } : {}),
     };
   });
   return { id, updated: true };
