@@ -1,6 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import * as sitesService from "./sites.service";
-import type { CreateSiteData, UpdateSiteData } from "./sites.service";
+import type { CreateSiteData, UpdateSiteData, CreateShiftData, UpdateShiftData } from "./sites.service";
 import { AppError, Errors } from "../../utils/errors";
 
 function resolveEmpresaId(request: FastifyRequest): string | null {
@@ -12,6 +12,12 @@ function resolveEmpresaId(request: FastifyRequest): string | null {
   }
   if (!payload.empresaId) throw Errors.forbidden("Sin empresa asignada");
   return payload.empresaId;
+}
+
+function requireEmpresaId(request: FastifyRequest): string {
+  const id = resolveEmpresaId(request);
+  if (!id) throw Errors.badRequest("empresaId es requerido");
+  return id;
 }
 
 export async function listHandler(request: FastifyRequest, reply: FastifyReply) {
@@ -29,7 +35,6 @@ export async function getOneHandler(request: FastifyRequest, reply: FastifyReply
   const { id } = request.params as { id: string };
   try {
     const empresaId = resolveEmpresaId(request);
-    if (!empresaId) throw Errors.badRequest("empresaId requerido para obtener sitio individual");
     const site = await sitesService.getSite(id, empresaId);
     return reply.send(site);
   } catch (err) {
@@ -40,12 +45,7 @@ export async function getOneHandler(request: FastifyRequest, reply: FastifyReply
 
 export async function createHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
-    let empresaId = resolveEmpresaId(request);
-    if (!empresaId) {
-      const body = request.body as Record<string, unknown>;
-      empresaId  = (body.empresaId as string | undefined) ?? null;
-    }
-    if (!empresaId) throw Errors.badRequest("empresaId es requerido");
+    const empresaId = requireEmpresaId(request);
     const body = request.body as Record<string, unknown>;
 
     const name    = typeof body.name    === "string" ? body.name.trim()    : "";
@@ -61,11 +61,7 @@ export async function createHandler(request: FastifyRequest, reply: FastifyReply
     if (isNaN(radius) || radius <= 0) throw Errors.badRequest("radiusMeters debe ser mayor que 0");
 
     const data: CreateSiteData = {
-      name,
-      address,
-      lat,
-      lng,
-      radiusMeters: radius,
+      name, address, lat, lng, radiusMeters: radius,
       timezone: typeof body.timezone === "string" ? body.timezone : undefined,
     };
 
@@ -80,12 +76,7 @@ export async function createHandler(request: FastifyRequest, reply: FastifyReply
 export async function updateHandler(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as { id: string };
   try {
-    let empresaId = resolveEmpresaId(request);
-    if (!empresaId) {
-      const body = request.body as Record<string, unknown>;
-      empresaId  = (body.empresaId as string | undefined) ?? null;
-    }
-    if (!empresaId) throw Errors.badRequest("empresaId es requerido");
+    const empresaId = resolveEmpresaId(request);
     const body = request.body as Record<string, unknown>;
 
     const data: UpdateSiteData = {};
@@ -99,6 +90,62 @@ export async function updateHandler(request: FastifyRequest, reply: FastifyReply
 
     const site = await sitesService.updateSite(id, empresaId, data);
     return reply.send(site);
+  } catch (err) {
+    if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+    throw err;
+  }
+}
+
+export async function createShiftHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id: siteId } = request.params as { id: string };
+  try {
+    const empresaId = requireEmpresaId(request);
+    const body = request.body as Record<string, unknown>;
+
+    const name         = typeof body.name         === "string" ? body.name.trim() : "";
+    const start        = typeof body.start        === "string" ? body.start       : "";
+    const end          = typeof body.end          === "string" ? body.end         : "";
+    const breakMinutes = typeof body.breakMinutes === "number" ? body.breakMinutes : parseInt(String(body.breakMinutes ?? "0"), 10);
+
+    if (!name)  throw Errors.badRequest("nombre es requerido");
+    if (!start) throw Errors.badRequest("hora inicio es requerida");
+    if (!end)   throw Errors.badRequest("hora fin es requerida");
+
+    const data: CreateShiftData = { name, start, end, breakMinutes: isNaN(breakMinutes) ? 0 : breakMinutes };
+    const shift = await sitesService.createShift(siteId, empresaId, data);
+    return reply.status(201).send(shift);
+  } catch (err) {
+    if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+    throw err;
+  }
+}
+
+export async function updateShiftHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id: siteId, shiftId } = request.params as { id: string; shiftId: string };
+  try {
+    const empresaId = resolveEmpresaId(request);
+    const body = request.body as Record<string, unknown>;
+
+    const data: UpdateShiftData = {};
+    if (typeof body.name         === "string") data.name         = body.name.trim();
+    if (typeof body.start        === "string") data.start        = body.start;
+    if (typeof body.end          === "string") data.end          = body.end;
+    if (typeof body.breakMinutes === "number") data.breakMinutes = body.breakMinutes;
+
+    const shift = await sitesService.updateShift(shiftId, siteId, empresaId, data);
+    return reply.send(shift);
+  } catch (err) {
+    if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+    throw err;
+  }
+}
+
+export async function deleteShiftHandler(request: FastifyRequest, reply: FastifyReply) {
+  const { id: siteId, shiftId } = request.params as { id: string; shiftId: string };
+  try {
+    const empresaId = resolveEmpresaId(request);
+    await sitesService.deleteShift(shiftId, siteId, empresaId);
+    return reply.send({ id: shiftId, deleted: true });
   } catch (err) {
     if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
     throw err;

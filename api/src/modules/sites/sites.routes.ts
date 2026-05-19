@@ -7,8 +7,11 @@ export async function sitesRoutes(fastify: FastifyInstance) {
   const auth      = [authMiddleware];
   const adminAuth = [authMiddleware, requireRole("gerencia", "rrhh", "platform_admin")];
 
-  fastify.get("/sites",     { preHandler: auth },      sitesController.listHandler);
-  fastify.get("/sites/:id", { preHandler: auth },      sitesController.getOneHandler);
-  fastify.post("/sites",    { preHandler: adminAuth }, sitesController.createHandler);
-  fastify.put("/sites/:id", { preHandler: adminAuth }, sitesController.updateHandler);
+  fastify.get("/sites",                        { preHandler: auth },      sitesController.listHandler);
+  fastify.get("/sites/:id",                    { preHandler: auth },      sitesController.getOneHandler);
+  fastify.post("/sites",                       { preHandler: adminAuth }, sitesController.createHandler);
+  fastify.put("/sites/:id",                    { preHandler: adminAuth }, sitesController.updateHandler);
+  fastify.post("/sites/:id/shifts",            { preHandler: adminAuth }, sitesController.createShiftHandler);
+  fastify.put("/sites/:id/shifts/:shiftId",    { preHandler: adminAuth }, sitesController.updateShiftHandler);
+  fastify.delete("/sites/:id/shifts/:shiftId", { preHandler: adminAuth }, sitesController.deleteShiftHandler);
 }
